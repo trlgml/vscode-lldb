@@ -19,9 +19,11 @@ interface Imessage {
 interface istackFrame {
   line: string
   column: string
+  name: string
   source: {
-    name: string
-    path: string
+    name?: string
+    path?: string
+    sourceReference?: number
   }
 }
 enum dataEnum {
@@ -65,29 +67,32 @@ export class UtsExtend {
     value = value.substring(0, 1).toLowerCase() + value.substring(1)
     return value.replace(/([A-Z])/g, '-$1').toLowerCase()
   }
+  private isSwift = (file: string): boolean => {
+    return /swift$/.test(file)
+  }
   private uniUtsSdkModule = (file: string): string => {
     const modRegex = /[\/|\\]uni_modules[\/|\\](.*?)[\/|\\]/
     const [, modPk] = modRegex.exec(file) || []
     if (modPk) {
-      return `unimodule-${modPk}`
+      return join('uni_modules', modPk, 'utssdk')
     }
     const sdkRegex = /[\/|\\]utssdk[\/|\\](.*?)[\/|\\]/
     const [, sdkPk] = sdkRegex.exec(file) || []
     if (sdkPk) {
-      return `utssdk-${sdkPk}`
+      return join('utssdk', sdkPk)
     }
     return ''
   }
   private uniUtsSdkUnpackage = (file: string): string => {
-    const regex = /[\/|\\]unimodule(.*?)[\/|\\]src[\/|\\]index\.swift/
+    const regex = /[\/|\\]uni_modules[\/|\\](.*?)[\/|\\].*src[\/|\\]index\.swift/
     const [, modPk] = regex.exec(file) || []
     if (modPk) {
-      return join('uni_modules', this.formatToLine(modPk), 'utssdk')
+      return join('uni_modules', modPk, 'utssdk')
     }
-    const sdkRegex = /[\/|\\]utssdk(.*?)[\/|\\]src[\/|\\]index\.swift/
+    const sdkRegex = /[\/|\\]utssdk[\/|\\](.*?)[\/|\\].*src[\/|\\]index\.swift/
     const [, sdkPk] = sdkRegex.exec(file) || []
     if (sdkPk) {
-      return join('utssdk', this.formatToLine(sdkPk))
+      return join('utssdk', sdkPk)
     }
     return ''
   }
@@ -105,8 +110,8 @@ export class UtsExtend {
   private toDebugFileByUts(file: string): string {
     const path = resolve(
       this.debugDir,
-      this.formatToHump(this.uniUtsSdkModule(file)),
-      './src/index.swift',
+      this.uniUtsSdkModule(file),
+      './app-ios/src/index.swift',
     )
     return path
   }
@@ -164,6 +169,7 @@ export class UtsExtend {
           },
           seq,
         } = message
+        console.log(JSON.stringify(message, null, 2))
         const sourceMapFile = this.resolveUtsPluginSourceMapFile({
           filename: path,
         })
@@ -216,13 +222,19 @@ export class UtsExtend {
             const {
               source: { path },
             } = stackFrame
-            if (path) {
+            if (stackFrame?.source?.name.includes('<compiler-generated>')) {
+              stackFrame.source = {
+                sourceReference: 1000,
+                name: stackFrame.name,
+              }
+              return stackFrame
+            }
+            if (path && this.isSwift(path)) {
               const filename = this.toUnpackageFile(path)
               const sourceMapFile = this.resolveUtsPluginSourceMapFile({
                 filename,
               })
               if (!sourceMapFile) return stackFrame
-
               const res = await this.originalPositionFor({
                 sourceMapFile,
                 filename,
@@ -279,6 +291,7 @@ export class UtsExtend {
             }),
           )
         }
+        console.log(JSON.stringify(data, null, 2))
         return data
       },
     }
