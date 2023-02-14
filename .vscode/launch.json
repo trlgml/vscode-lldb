@@ -15,7 +15,7 @@
 			"outFiles": [
 				"${workspaceFolder}/build/*.js"
 			],
-			"sourceMaps": true,
+			"sourceMaps": true
 		},
 		{
 			"name": "codelldb",

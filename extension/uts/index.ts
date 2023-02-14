@@ -45,6 +45,7 @@ export class UtsExtend {
   private debugDir: string
   private breakpointMap: Map<string, any>
   private breakpointEventMap: Map<string, any>
+  private sourceMap: Map<string, any>
   private uts: any
 
   constructor(
@@ -59,6 +60,7 @@ export class UtsExtend {
     this.uts = requireFunc(convertFile)
     this.breakpointEventMap = new Map()
     this.breakpointMap = new Map()
+    this.sourceMap = new Map()
   }
   private formatToHump = (value: string): string => {
     return value.replace(/\-(\w)/g, (_, letter) => letter.toUpperCase())
@@ -161,6 +163,10 @@ export class UtsExtend {
 
   public async messageTransform(message: Imessage) {
     const TransformEnum: Record<string, any> = {
+      source: async (data: any) => {
+        this.sourceMap.set(data.seq, true)
+        return data
+      },
       setBreakpoints: async (message: Imessage) => {
         const {
           arguments: {
@@ -169,7 +175,6 @@ export class UtsExtend {
           },
           seq,
         } = message
-        console.log(JSON.stringify(message, null, 2))
         const sourceMapFile = this.resolveUtsPluginSourceMapFile({
           filename: path,
         })
@@ -223,10 +228,11 @@ export class UtsExtend {
               source: { path },
             } = stackFrame
             if (stackFrame?.source?.name.includes('<compiler-generated>')) {
-              stackFrame.source = {
-                sourceReference: 1000,
+              stackFrame.source = Object.assign(stackFrame.source, {
+                sourceReference: 0,
                 name: stackFrame.name,
-              }
+              })
+              // stackFrame.name = 'delete'
               return stackFrame
             }
             if (path && this.isSwift(path)) {
@@ -248,10 +254,21 @@ export class UtsExtend {
                   name: basename(res.path),
                   path: res.path,
                 }
+              } else {
+                stackFrame.source = Object.assign(stackFrame.source, {
+                  sourceReference: 0,
+                  path: stackFrame.name,
+                })
               }
+            } else {
+              // stackFrame.source.path = stackFrame.name
             }
+            console.log(stackFrame)
             return stackFrame
           }),
+        )
+        data.body.stackFrames = data.body.stackFrames.filter(
+          (stackFrame) => stackFrame?.name !== 'delete',
         )
         return data
       },
@@ -291,13 +308,30 @@ export class UtsExtend {
             }),
           )
         }
-        console.log(JSON.stringify(data, null, 2))
         return data
+      },
+      emptyCommand: async (data: any) => {
+        // if (this.sourceMap.get(data.request_seq) && data.message === 'Internal debugger error: Expected non-zero handle value') {
+        if (this.sourceMap.get(data.request_seq)) {
+          return {
+            seq: data.seq,
+            type: 'response',
+            request_seq: data.request_seq,
+            success: true,
+            command: 'source',
+            body: {
+              content: `/*
+uts 转换出错啦
+								*/
+`,
+            },
+          }
+        }
       },
     }
 
     try {
-      let key = data.command
+      let key = data.command || 'emptyCommand'
       if (data.type === dataEnum.event) {
         key = data.event
       }
